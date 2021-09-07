@@ -1,0 +1,254 @@
+nginx configuration
+
+Nginx se encuentra en el repositorio EPEL, por lo que si no lo tienes instalado aún, hazlo ahora:
+
+~$ sudo yum -y install epel-release
+
+~$ sudo yum update -y
+
+Instalar Nginx
+
+~$ sudo yum install -y nginx
+
+Iniciar por primera vez
+
+~$ sudo systemctl start nginx
+
+Inicio automatico
+
+~$ sudo systemctl enable nginx
+
+Verificacion
+
+systemctl status nginx
+
+Cómo configurar el firewall de CentOS 7 para Nginx
+
+~$ sudo firewall-cmd --permanent --add-service={http,https}
+
+Recargar reglas Firewall
+
+~$ sudo firewall-cmd --reload
+
+Testear la configuración de Nginx en CentOS 7
+
+~$ sudo nginx -t
+nginx: the configuration file /etc/nginx/nginx.conf syntax is ok
+nginx: configuration file /etc/nginx/nginx.conf test is successful
+
+Cargar la nueva configuración de Nginx
+
+~$ sudo systemctl restart nginx
+
+Archivos de registro o log
+Los archivos de registro o logs se encuentran en /var/log/nginx/. Es importante consultarlos, sobre todo en caso de errores o cuando las cosas no funcionan como se esperaba.
+
+Carpeta de archivos web
+Los archivos de la página web por defecto de Nginx en CentOS 7 se encuentran en /usr/share/nginx/html/.
+
+Cómo configurar SSL (HTTPS) en Nginx para CentOS 7
+
+~$ sudo nano /etc/nginx/nginx.conf
+
+...
+# Settings for a TLS enabled server.
+#
+#    server {
+#        listen       443 ssl http2 default_server;
+#        listen       [::]:443 ssl http2 default_server;
+#        server_name  _;
+#        root         /usr/share/nginx/html;
+...
+
+Eliminaremos las (#) de principio de línea de todo el bloque, excepto en las líneas de comentarios.
+
+En las directivas ssl_certificate y ssl_certificate_key cambiaremos las rutas especificando las de nuestro certificado y su clave privada:
+
+...
+# Settings for a TLS enabled server.
+    server {
+        listen       443 ssl http2 default_server;
+        listen       [::]:443 ssl http2 default_server;
+        server_name  _;
+        root         /usr/share/nginx/html;
+        ssl_certificate "/etc/pki/tls/certs/centos7.local.lan.crt";
+        ssl_certificate_key "/etc/pki/tls/private/centos7.local.lan.key";
+        ssl_session_cache shared:SSL:1m;
+        ssl_session_timeout  10m;
+        ssl_ciphers HIGH:!aNULL:!MD5;
+        ssl_prefer_server_ciphers on;
+        # Load configuration files for the default server block.
+        include /etc/nginx/default.d/*.conf;
+        location / {
+        }
+        error_page 404 /404.html;
+            location = /40x.html {
+        }
+        error_page 500 502 503 504 /50x.html;
+            location = /50x.html {
+        }
+    }
+...
+
+En este ejemplo he usado un certificado autofirmado generado mediante el comando openssl:
+
+~$ sudo openssl req -newkey rsa:2048 -x509 -nodes -days 3650 -out /etc/pki/tls/certs/centos7.local.lan.crt -keyout /etc/pki/tls/private/centos7.local.lan.key
+
+Si vas a crear un certificado autofirmado con el comando anterior, cambia los nombres de los archivos al dominio o nombre de tu máquina CentOS 7, y en el cuestionario que se plantea durante la ejecución del comando, contesta al valor «Common Name» con el mismo valor. En este ejemplo:
+
+...
+Common Name (eg, your name or your server's hostname) []:centos7.local.lan
+...
+Tras guardar los cambios, validarlos y reiniciar el servicio nginx ya podemos acceder a la web por defecto tanto con protocolo HTTP como con HTTPS:
+
+
+Server blocks (servidores virtuales o «virtual hosts» de Nginx)
+Nginx ofrece la característica fundamental de servidores virtuales o virtual hosts. Para utilizar los servidores virtuales montaremos una estructura de archivos de configuración similar a la que incorpora Debian, ya que es un sistema muy cómodo y útil.
+
+Crearemos una carpeta /etc/nginx/sites-available/ donde guardaremos los archivos de configuración de cada servidor virtual (un archivo por cada virtual host).
+
+~$ sudo mkdir /etc/nginx/sites-available
+
+Crearemos una segunda carpeta /etc/nginx/sites-enabled/ donde enlazaremos los archivos de la primera carpeta correspondientes a los servidores virtuales que queramos tener activos.
+
+~$ sudo mkdir /etc/nginx/sites-enabled
+De esta forma activar un servidor virtual equivaldrá a crear un enlace simbólico, mientras que desactivarlo consistirá en borrar el enlace (pero no el archivo de configuración del virtual host).
+
+Para que Nginx tenga en cuenta los archivos de configuración de nuestros servidores virtuales activos, editaremos el archivo de configuración principal:
+
+~$ sudo nano /etc/nginx/nginx.conf
+Al trabajar con servidores virtuales tendremos que definir el servidor por defecto, que es el que responderá a las peticiones locales, por dirección IP o por cualquier dominio que apunte al servidor CentOS 7 y no tenga un servidor virtual configurado para responder. Esto lo haremos buscando las directivas listen del bloque server de nginx.conf:
+
+...
+    server {
+        listen       80;
+        listen       [::]:80;
+...
+Añadiremos el parámetro default_server a cada una de ellas:
+
+...
+    server {
+        listen       80 default_server;
+        listen       [::]:80 default_server;
+...
+Si lo hemos configurado, haremos otro tanto con las respectivas directivas del bloque server para la versión HTTPS del sitio:
+
+...
+    server {
+        listen       443 ssl http2 default_server;
+        listen       [::]:443 ssl http2 default_server;
+...
+Hecho esto activaremos la carga de las configuraciones de servidores virtuales, buscando dentro del bloque http, en el cual existe la siguiente sección donde ya se incluyen archivos de configuración externos:
+
+...
+    # Load modular configuration files from the /etc/nginx/conf.d directory.
+    # See http://nginx.org/en/docs/ngx_core_module.html#include
+    # for more information.
+    include /etc/nginx/conf.d/*.conf;
+...
+Justo a continuación de la directiva include ya existente es el mejor sitio para añadir otra directiva include para los archivos de configuración de los servidores virtuales:
+
+...
+    # Load modular configuration files from the /etc/nginx/conf.d directory.
+    # See http://nginx.org/en/docs/ngx_core_module.html#include
+    # for more information.
+    include /etc/nginx/conf.d/*.conf;
+    include /etc/nginx/sites-enabled/*.conf;
+...
+Ya podemos guardar y cerrar nginx.conf.
+
+Cómo crear un servidor virtual de Nginx en CentOS
+Vamos a crear un servidor virtual para un dominio o subdominio que apunte al sistema CentOS 7 en el que tenemos instalado Nginx.
+
+Empezaremos creando la carpeta para los archivos web. Como vimos anteriormente, la carpeta web del servidor por defecto se encuentra en /usr/share/nginx/html/. Por tanto, deberíamos crear las carpetas para otros servidores virtuales en un nivel superior, en /usr/share/nginx/.
+
+Una buena costumbre es nombrar la carpeta con el mismo nombre del dominio al que responderá al virtual host.
+
+~$ sudo mkdir /usr/share/nginx/blog.centos7.local.lan
+Puedes cambiar el propietario y el grupo de esta carpeta, utilizando el usuario que vaya a encargarse de la web de este servidor virtual, así no sería necesario trabajar con sudo.
+
+Es conveniente añadir contenido a esta nueva carpeta de documentos web, para evitar errores de acceso no autorizado. Crearé un sencillo archivo HTML:
+
+~$ sudo nano /usr/share/nginx/blog.centos7.local.lan/index.html
+El contenido puede ser cualquiera, yo pondré este:
+
+<head>
+        <meta charset="utf8">
+</head>
+<h1>blog.centos7.local.lan</h1>
+<h2>Página de prueba</h2>
+Ahora editamos el archivo de configuración del servidor virtual en /etc/nginx/sites-available/. Igualmente es buena idea usar como nombre para el archivo el mismo nombre que el dominio, pero añadiendo la extensión .conf:
+
+~$ sudo nano /etc/nginx/sites-available/blog.centos7.local.lan.conf
+El contenido básico del archivo puede ser este:
+
+server {
+        listen 80;
+        listen [::]:80;
+        server_name blog.centos7.local.lan;
+        root /usr/share/nginx/blog.centos7.local.lan/;
+        index index.html;
+        location / {
+                try_files $uri $uri/ =404;
+        }
+        error_log /var/log/nginx/blog.centos7.local.lan-error.log;
+        access_log /var/log/nginx/blog.centos7.local.lan-access.log main;
+}
+Como ves, la configuración de un servidor virtual es muy simple. Consta de un bloque principal server en el que se incluyen una serie de directivas:
+
+LISTEN
+Indican el puerto en el que Nginx escuchará peticiones. El puerto 80 es el estándar para el protocolo HTTP. Esta directiva está duplicada, para funcionar con IPv4 e IPv6.
+
+SERVER_NAME
+Esta directiva es la que especifica el dominio al que atenderá el servidor virtual.
+
+ROOT
+La directiva root se encarga de indicar la carpeta de archivos web para el virtual host.
+
+INDEX
+Especifica el archivo índice, que es el que se entrega cuando la URL solicitada no incluye un archivo, sino un directorio. Normalmente es index.html, pero puede ser default.html, index.htm, etc. Puedes cambiarlo según tus necesidades.
+
+LOCATION
+Este bloque configura opciones para un directorio del servidor virtual. En el ejemplo se configura que el recurso solicitado se trate en primer lugar como archivo, en su defecto como directorio y en caso de fallo se produzca el error 404.
+
+ERROR_LOG
+El archivo de registro de errores del servidor virtual. En este ejemplo utilizo el directorio de logs de Nginx en CentOS 7, pero especificando como parte del nombre el dominio del servidor virtual.
+
+ACCESS_LOG
+El archivo de accesos al servidor virtual. Se aplica lo mismo que en el archivo de errores.
+
+Activando el servidor virtual
+Guardados los cambios, es el momento de activar el nuevo servidor virtual. Teniendo en cuenta la estructura de configuración que hemos montado, hay que crear el enlace en la carpeta de servidores activos:
+
+~$ sudo ln -s /etc/nginx/sites-available/blog.centos7.local.lan.conf /etc/nginx/sites-enabled/
+Ya podemos validar la configuración y reiniciar Nginx.
+
+Servidores virtuales con SSL (HTTPS)
+Para configurar un certificado SSL en un servidor virtual, procederemos de manera similar al caso del servidor por defecto. Con el certificado ya instalado en el sistema, editamos el archivo de configuración del servidor virtual y añadimos algunas directivas:
+
+server {
+        listen 80;
+        listen [::]:80;
+        listen 443 ssl;
+        listen [::]:443 ssl;
+        server_name blog.centos7.local.lan;
+        ssl_certificate /etc/pki/tls/certs/blog.centos7.local.lan.crt;
+        ssl_certificate_key /etc/pki/tls/private/blog.centos7.local.lan.key;
+        root /usr/share/nginx/blog.centos7.local.lan/;
+        index index.html;
+        location / {
+                try_files $uri $uri/ =404;
+        }
+        error_log /var/log/nginx/blog.centos7.local.lan-error.log;
+        access_log /var/log/nginx/blog.centos7.local.lan-access.log main;
+}
+Veamos qué hemos hecho.
+
+LISTEN
+Hemos añadido dos directivas más del tipo listen (una para IPv4 y otra para IPv6) en las que especificamos el puerto estándar HTTPS, el 443 y la opción ssl, que especifica que en estos puertos las peticiones que se escucharán serán cifradas.
+
+SSL_CERTIFICATE
+Indica la parte pública del certificado.
+
+SSL_CERTIFICATE_KEY
+Indica la parte privada del certificado.
